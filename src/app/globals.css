@@ -1,19 +1,12 @@
 @import "tailwindcss";
 
-:root {
+@theme inline {
   --background: #ffffff;
   --foreground: #171717;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 @media (prefers-color-scheme: dark) {
-  :root {
+  @theme inline {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
@@ -23,4 +16,63 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.react-calendar {
+  width: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.react-calendar__tile--active {
+  background: #3b82f6;
+  color: white;
+  border-radius: 6px;
+}
+
+.react-calendar__tile--now {
+  background: #dbeafe;
+  border-radius: 6px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.25s ease-out;
+}
+
+:root {
+  --grad-start: #4cd4b0;
+  --grad-end: #4c9aff;
+}
+
+/* ページ全体の背景を白〜グラデに */
+body {
+  background: linear-gradient(to bottom right, #f8fafc, #ecfdf5);
+  color: #1e293b; /* テキストカラーも合わせる */
+  min-height: 100vh;
 }
