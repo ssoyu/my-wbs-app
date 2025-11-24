@@ -91,7 +91,7 @@ export default function IssuesPage() {
   // -------------------------------------
   // Firestoreへ保存関数（完全版）
   // -------------------------------------
-  const sanitizeData = (data: any) => {
+  const sanitizeData = (data: any): any => {
     if (Array.isArray(data)) {
       return data.map((item) => sanitizeData(item));
     } else if (data && typeof data === "object") {
