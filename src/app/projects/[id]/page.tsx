@@ -1,20 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-// ✅ Firestore関連を追加
+// Firestore関連
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/useAuth";
 
 // ===============================
-// 型定義（変更なし）
+// 型定義
 // ===============================
-interface Member {
-  id: string;
-  name: string;
-}
 
 interface Task {
   id: string;
@@ -22,7 +18,7 @@ interface Task {
   done: boolean;
   deadline: string;
   completedAt?: string;
-  assignee: string;
+  assignee: string; // 個人PJでは常に「自分」で使う
 }
 
 interface Goal {
@@ -47,7 +43,6 @@ interface Project {
   title: string;
   description: string;
   isPrivate: boolean;
-  members: Member[];
   goals: Goal[];
   issues: Issue[];
   progress?: number;
@@ -62,15 +57,16 @@ export default function ProjectDetail() {
   const params = useParams();
   const projectId = params.id as string;
 
+  const user = useAuth(); // 🔑 ログインユーザー
   const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // 既存のState群（変更なし）
+  // Task / Goal まわりの state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentGoalId, setCurrentGoalId] = useState<string | null>(null);
   const [newTask, setNewTask] = useState({
     title: "",
     deadline: "",
-    assignee: "",
     completedAt: "",
   });
 
@@ -84,26 +80,28 @@ export default function ProjectDetail() {
     note: "",
   });
 
-  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
-  const [newIssue, setNewIssue] = useState({
-    title: "",
-    description: "",
-    deadline: "",
-    assignee: "",
-  });
-
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: "", deadline: "" });
 
   // ===============================
-  // ✅ Firestoreから案件を取得
+  // ✅ Firestoreから案件を取得（users/{uid}/projects/{id}）
   // ===============================
   useEffect(() => {
+    // 認証状態チェック中
+    if (user === undefined) return;
+
+    // 未ログインならプロジェクトは取れない
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    if (!projectId) return;
+
     const fetchProject = async () => {
       try {
-        const ref = doc(db, "projects", projectId);
+        const ref = doc(db, "users", user.uid, "projects", projectId);
         const snap = await getDoc(ref);
 
         if (snap.exists()) {
@@ -113,7 +111,6 @@ export default function ProjectDetail() {
             title: data.title || "",
             description: data.description || "",
             isPrivate: data.isPrivate ?? true,
-            members: data.members ?? [],
             goals: data.goals ?? [],
             issues: data.issues ?? [],
             progress: data.progress ?? 0,
@@ -121,23 +118,28 @@ export default function ProjectDetail() {
           };
           setProject(normalized);
         } else {
-          alert("この案件は存在しません。");
-          router.push("/projects");
+          setProject(null);
         }
       } catch (error) {
         console.error("Firestore読み込みエラー:", error);
-        alert("データの読み込みに失敗しました。");
+        setProject(null);
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchProject();
-  }, [projectId, router]);
+  }, [user, projectId]);
 
   // ===============================
-  // ✅ Firestoreへ保存（localStorage完全削除）
+  // ✅ Firestoreへ保存（users/{uid}/projects/{id}）
   // ===============================
   const saveProject = async (updated: Project) => {
     if (!updated?.id) return;
+    if (!user) {
+      alert("ログインが切れています。再度ログインしてください。");
+      return;
+    }
 
     // ✅ Firestoreに送る前にundefinedを除去
     const cleanObject = (obj: any): any => {
@@ -146,7 +148,7 @@ export default function ProjectDetail() {
       } else if (obj && typeof obj === "object") {
         const result: any = {};
         for (const [key, value] of Object.entries(obj)) {
-          if (value === undefined) continue; // 🔥 undefinedを削除
+          if (value === undefined) continue;
           result[key] = cleanObject(value);
         }
         return result;
@@ -162,9 +164,9 @@ export default function ProjectDetail() {
     };
 
     try {
-      const ref = doc(db, "projects", updated.id);
+      const ref = doc(db, "users", user.uid, "projects", updated.id);
       await updateDoc(ref, updatedWithProgress);
-      setProject(updatedWithProgress);
+      setProject(updatedWithProgress as Project);
       console.log("✅ Firestoreへ保存完了:", updated.title);
     } catch (e) {
       console.error("❌ Firestore更新エラー:", e);
@@ -176,7 +178,7 @@ export default function ProjectDetail() {
   // =====================================
   // 進捗率を自動計算する関数（Taskのみ）
   // =====================================
-  const calculateProgress = (project: Project): number => {
+  const calculateProgress = (project: { goals: Goal[] }): number => {
     let total = 0;
     let done = 0;
 
@@ -193,11 +195,6 @@ export default function ProjectDetail() {
   // -------------------------------------
   // Goal追加
   // -------------------------------------
-  // 追加 state
-  // const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
-  // const [newGoal, setNewGoal] = useState({ title: "", deadline: "" });
-
-  // 編集モード時、モーダルに既存データを反映
   useEffect(() => {
     if (editingGoal) {
       setNewGoal({
@@ -209,14 +206,12 @@ export default function ProjectDetail() {
     }
   }, [editingGoal]);
 
-  // Goal追加開始（モーダルを開く）
   const openGoalModal = () => {
-    setEditingGoal(null); // ← ★ これを追加！
+    setEditingGoal(null);
     setNewGoal({ title: "", deadline: "" });
     setIsGoalModalOpen(true);
   };
 
-  // Goal保存
   const saveGoal = () => {
     if (!project) return;
     if (!newGoal.title) {
@@ -225,7 +220,6 @@ export default function ProjectDetail() {
     }
 
     if (editingGoal) {
-      // 編集モード
       const updatedGoals = project.goals.map((goal) =>
         goal.id === editingGoal.id
           ? { ...goal, title: newGoal.title, deadline: newGoal.deadline }
@@ -234,7 +228,6 @@ export default function ProjectDetail() {
       saveProject({ ...project, goals: updatedGoals });
       setEditingGoal(null);
     } else {
-      // 新規追加
       const newItem: Goal = {
         id: Date.now().toString(),
         title: newGoal.title,
@@ -252,15 +245,12 @@ export default function ProjectDetail() {
   // -------------------------------------
   const addTask = (goalId: string) => {
     setCurrentGoalId(goalId);
-    setNewTask({ title: "", deadline: "", assignee: "", completedAt: "" });
+    setNewTask({ title: "", deadline: "", completedAt: "" });
     setIsModalOpen(true);
   };
 
   // -------------------------------------
-  // Task完了切替
-  // -------------------------------------
-  // -------------------------------------
-  // Task完了切替（完了日＝今日）
+  // Task完了切替（完了日＝今日 or リセット）
   // -------------------------------------
   const toggleTask = (goalId: string, taskId: string) => {
     if (!project) return;
@@ -272,11 +262,9 @@ export default function ProjectDetail() {
         if (t.id !== taskId) return t;
 
         if (!t.done) {
-          // ✅ 完了にする → 今日を自動セット
           const today = new Date().toISOString().split("T")[0];
           return { ...t, done: true, completedAt: today };
         } else {
-          // ✅ 未完了に戻す
           return { ...t, done: false, completedAt: undefined };
         }
       });
@@ -287,25 +275,70 @@ export default function ProjectDetail() {
     saveProject({ ...project, goals: updatedGoals });
   };
 
-  if (!project)
+  // ===============================
+  // レンダリング分岐
+  // ===============================
+  // 認証状態確認中 or Firestore読み込み中
+  if (user === undefined || loading) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F8FAFC] to-[#ECFDF5] text-[#1E293B]">
         <p className="text-lg font-medium animate-pulse">読み込み中...</p>
       </main>
     );
+  }
+
+  // 未ログイン
+  if (!user) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="bg-white p-8 rounded-xl shadow-md text-center max-w-md">
+          <h1 className="text-xl font-bold mb-4">ログインが必要です</h1>
+          <p className="text-gray-600 text-sm mb-6">
+            あなた専用の案件を表示するには、ログインしてください。
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm"
+          >
+            ログイン画面へ
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // プロジェクトが存在しない
+  if (!project) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="bg-white p-8 rounded-xl shadow-md text-center max-w-md">
+          <h1 className="text-xl font-bold mb-4">この案件はありません</h1>
+          <p className="text-gray-600 text-sm mb-6">
+            削除されたか、URL が間違っている可能性があります。
+          </p>
+          <button
+            onClick={() => router.push("/projects")}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm"
+          >
+            プロジェクト一覧に戻る
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   // -------------------------------------
-  // JSX出力
+  // JSX出力（ここから下は project が必ず存在）
   // -------------------------------------
   return (
     <main
       className="
-    min-h-screen 
-    bg-gradient-to-br from-[#F8FAFC] to-[#ECFDF5] text-[#1E293B]
-    px-4 sm:px-8 lg:px-16 xl:px-24
-    py-8
-    max-w-[1400px] mx-auto
-  "
+        min-h-screen 
+        bg-gradient-to-br from-[#F8FAFC] to-[#ECFDF5] text-[#1E293B]
+        px-4 sm:px-8 lg:px-16 xl:px-24
+        py-8
+        max-w-[1400px] mx-auto
+      "
     >
       {/* ヘッダー */}
       <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-10 border-b border-gray-200 pb-4">
@@ -314,9 +347,7 @@ export default function ProjectDetail() {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <span>📁</span>
             {project.title}
-            <span className="text-sm text-gray-500">
-              {project.isPrivate ? "（個人）" : "（共有）"}
-            </span>
+            <span className="text-sm text-gray-500">（個人）</span>
           </h1>
           {project.description && (
             <p className="text-sm text-gray-600 mt-1">{project.description}</p>
@@ -343,69 +374,7 @@ export default function ProjectDetail() {
         </div>
       </header>
 
-      {/* ✅ メンバー管理セクション */}
-      <section className="bg-white/70 rounded-xl shadow-sm border border-gray-100 p-5 mb-10">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            👥 メンバー
-          </h2>
-
-          {!project.isPrivate && (
-            <button
-              onClick={() => {
-                const name = prompt("新しいメンバー名を入力してください");
-                if (!name) return;
-                const newMember: Member = { id: Date.now().toString(), name };
-                saveProject({
-                  ...project,
-                  members: [...(project.members ?? []), newMember],
-                });
-              }}
-              className="text-sm bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-3 py-1 rounded-full hover:opacity-90"
-            >
-              ＋ メンバー追加
-            </button>
-          )}
-        </div>
-
-        {project.members.length > 0 ? (
-          <div className="flex flex-wrap gap-3">
-            {project.members.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-1 shadow-sm hover:shadow-md transition"
-              >
-                <span className="text-sm font-medium text-gray-800">
-                  {m.name}
-                </span>
-                {!project.isPrivate && (
-                  <button
-                    onClick={() => {
-                      if (confirm(`${m.name} さんを削除しますか？`)) {
-                        saveProject({
-                          ...project,
-                          members: project.members.filter((x) => x.id !== m.id),
-                        });
-                      }
-                    }}
-                    className="text-xs text-red-500 hover:text-red-700"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">
-            まだメンバーが登録されていません。
-          </p>
-        )}
-      </section>
-      {/* ===============================
-     Goals セクション（改良版）
-   =============================== */}
-      {/* 🎯 中項目（Goals） */}
+      {/* 🎯 Goals / Tasks */}
       <section className="bg-white/60 rounded-xl border border-gray-200 shadow-sm p-6 mb-12">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-800">
@@ -439,13 +408,7 @@ export default function ProjectDetail() {
         {project.goals.length === 0 ? (
           <p className="text-gray-500">まだGoalが登録されていません。</p>
         ) : (
-          <ul
-            className="
-      grid gap-4 
-      sm:grid-cols-1   /* スマホでは1列 */
-      md:grid-cols-2   /* 中画面以上では2列 */
-    "
-          >
+          <ul className="grid gap-4 sm:grid-cols-1 md:grid-cols-2">
             {project.goals.map((g) => {
               const totalTasks = g.tasks.length;
               const doneTasks = g.tasks.filter((t) => t.done).length;
@@ -571,7 +534,7 @@ export default function ProjectDetail() {
                                         goalId: g.id,
                                         task: t,
                                       });
-                                      setIsCompleteModalOpen(true); // ← 🔥これを追加！
+                                      setIsCompleteModalOpen(true);
                                     }
                                   }}
                                   className={`${
@@ -634,9 +597,6 @@ export default function ProjectDetail() {
       {isGoalModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-            {/* <h2 className="text-lg font-semibold mb-4">
-              🎯 中項目（Goal）を追加
-            </h2> */}
             <h2 className="text-lg font-semibold mb-4">
               🎯 {editingGoal ? "中項目（Goal）を編集" : "中項目（Goal）を追加"}
             </h2>
@@ -688,7 +648,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* ✅ タスク追加モーダル（正しい位置） */}
+      {/* ✅ タスク追加モーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
@@ -723,29 +683,6 @@ export default function ProjectDetail() {
                 />
               </div>
 
-              {!project?.isPrivate && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    担当者
-                  </label>
-                  <select
-                    value={newTask.assignee}
-                    onChange={(e) =>
-                      setNewTask({ ...newTask, assignee: e.target.value })
-                    }
-                    className="w-full border rounded-md px-3 py-2"
-                  >
-                    <option value="">選択してください</option>
-                    {project.members.map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* ✅ 完了日（編集モード時のみ表示） */}
               {editingTask && (
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -755,7 +692,10 @@ export default function ProjectDetail() {
                     type="date"
                     value={newTask.completedAt || ""}
                     onChange={(e) =>
-                      setNewTask({ ...newTask, completedAt: e.target.value })
+                      setNewTask({
+                        ...newTask,
+                        completedAt: e.target.value,
+                      })
                     }
                     className="w-full border rounded-md px-3 py-2"
                   />
@@ -765,7 +705,10 @@ export default function ProjectDetail() {
 
             <div className="flex justify-end gap-3 mt-6">
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setEditingTask(null);
+                }}
                 className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
               >
                 キャンセル
@@ -777,20 +720,17 @@ export default function ProjectDetail() {
                     return;
                   }
 
-                  const parentGoal = project?.goals.find(
+                  const parentGoal = project.goals.find(
                     (g) => g.id === currentGoalId
                   );
                   if (!parentGoal) return;
 
                   const deadline = newTask.deadline || "期日なし";
-                  const assignee = project?.isPrivate
-                    ? "自分"
-                    : newTask.assignee || "未設定";
+                  const assignee = "自分"; // 個人PJなので固定
 
                   let updatedGoals;
 
                   if (editingTask) {
-                    // ✏️ 編集モード
                     updatedGoals = project.goals.map((g) =>
                       g.id === parentGoal.id
                         ? {
@@ -803,7 +743,7 @@ export default function ProjectDetail() {
                                     deadline,
                                     assignee,
                                     completedAt:
-                                      newTask.completedAt || task.completedAt, // ← 追加
+                                      newTask.completedAt || task.completedAt,
                                   }
                                 : task
                             ),
@@ -811,7 +751,6 @@ export default function ProjectDetail() {
                         : g
                     );
                   } else {
-                    // ＋ 新規追加モード
                     updatedGoals = project.goals.map((g) =>
                       g.id === parentGoal.id
                         ? {
@@ -824,7 +763,7 @@ export default function ProjectDetail() {
                                 done: false,
                                 deadline,
                                 assignee,
-                                completedAt: "", // ← 初期値
+                                completedAt: "",
                               },
                             ],
                           }
@@ -833,8 +772,6 @@ export default function ProjectDetail() {
                   }
 
                   saveProject({ ...project, goals: updatedGoals });
-
-                  // モーダルを閉じてリセット
                   setIsModalOpen(false);
                   setEditingTask(null);
                 }}
@@ -846,7 +783,8 @@ export default function ProjectDetail() {
           </div>
         </div>
       )}
-      {/* ✅ タスク完了モーダル（備考なしバージョン） */}
+
+      {/* ✅ タスク完了モーダル */}
       {isCompleteModalOpen && completingTask && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">

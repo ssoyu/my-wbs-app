@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-// ✅ Firestore関連追加
+// ✅ Firestore関連
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/useAuth"; // 🔑 追加：ログインユーザー取得
@@ -37,12 +37,12 @@ interface Project {
   issues: Issue[];
 }
 
-export default function IssuesPage() {
+export default function SharedIssuesPage() {
   const router = useRouter();
   const params = useParams();
   const projectId = params.id as string;
 
-  const user = useAuth(); // 🔑 追加：認証状態（undefined / null / User）
+  const user = useAuth(); // 🔑 認証状態（undefined / null / User）
 
   const [project, setProject] = useState<Project | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,7 +59,7 @@ export default function IssuesPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // ================================
-  // ✅ Firestore リアルタイム同期
+  // ✅ Firestore リアルタイム同期（shareProjects/{id}）
   // ================================
   useEffect(() => {
     // 認証状態確認中は何もしない
@@ -71,13 +71,13 @@ export default function IssuesPage() {
       return;
     }
 
-    const ref = doc(db, "users", user.uid, "projects", projectId); // 🔁 パスをユーザー別に
+    const ref = doc(db, "shareProjects", projectId);
 
     const unsubscribe = onSnapshot(
       ref,
       (snap) => {
         if (!snap.exists()) {
-          alert("この案件は存在しません。");
+          alert("この共有プロジェクトは存在しません。");
           router.push("/projects");
           return;
         }
@@ -86,7 +86,8 @@ export default function IssuesPage() {
         const normalized: Project = {
           id: snap.id,
           title: data.title || "",
-          isPrivate: data.isPrivate ?? true,
+          // 共有PJなので isPrivate は常に false
+          isPrivate: false,
           members: data.members ?? [],
           goals: data.goals ?? [],
           issues: data.issues ?? [],
@@ -128,12 +129,12 @@ export default function IssuesPage() {
     const cleaned = sanitizeData(updated);
 
     try {
-      const ref = doc(db, "users", user.uid, "projects", updated.id); // 🔁 ここも users/{uid}/projects/{id}
+      const ref = doc(db, "shareProjects", updated.id);
       await setDoc(ref, cleaned, { merge: true });
       setProject(cleaned);
-      console.log("✅ Firestoreへ保存完了:", cleaned.title);
+      console.log("✅ shareProjects へ保存完了:", cleaned.title);
     } catch (e) {
-      console.error("❌ Firestore更新エラー:", e);
+      console.error("❌ shareProjects 更新エラー:", e);
       console.dir(cleaned);
       alert("Firestoreへの保存に失敗しました。");
     }
@@ -158,7 +159,7 @@ export default function IssuesPage() {
         <div className="bg-white p-8 rounded-xl shadow-md text-center max-w-md">
           <h1 className="text-xl font-bold mb-4">ログインが必要です</h1>
           <p className="text-gray-600 text-sm mb-6">
-            あなた専用の課題管理表を表示するには、ログインしてください。
+            共有プロジェクトの課題管理表を表示するには、ログインしてください。
           </p>
           <button
             onClick={() => router.push("/login")}
@@ -194,14 +195,14 @@ export default function IssuesPage() {
       <header className="flex justify-between items-center mb-10 border-b border-gray-200 pb-4">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
           <span>📝</span>
-          {project.title} の課題管理表
+          {project.title} の課題管理表（共有）
         </h1>
         <div className="flex gap-3">
           <button
-            onClick={() => router.push(`/projects/${project.id}`)}
+            onClick={() => router.push(`/shared/${project.id}`)}
             className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md transition"
           >
-            ← 案件詳細に戻る
+            ← 共有PJ詳細に戻る
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
@@ -285,8 +286,8 @@ export default function IssuesPage() {
               <div className="flex justify-end mt-4 gap-3">
                 <button
                   onClick={() => {
-                    setEditingIssue(i); // 編集対象セット
-                    setIsEditModalOpen(true); // モーダルを開く
+                    setEditingIssue(i);
+                    setIsEditModalOpen(true);
                   }}
                   className="text-sm text-blue-500 hover:text-blue-700"
                 >
@@ -366,31 +367,27 @@ export default function IssuesPage() {
                 />
               </div>
 
-              {/* 担当者 */}
-              {!project.isPrivate && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    担当者
-                  </label>
-                  <select
-                    value={editingIssue.assignee}
-                    onChange={(e) =>
-                      setEditingIssue({
-                        ...editingIssue,
-                        assignee: e.target.value,
-                      })
-                    }
-                    className="w-full border rounded-md px-3 py-2"
-                  >
-                    <option value="">選択してください</option>
-                    {project.members.map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* 担当者（共有PJなので常に表示） */}
+              <div>
+                <label className="block text-sm font-medium mb-1">担当者</label>
+                <select
+                  value={editingIssue.assignee}
+                  onChange={(e) =>
+                    setEditingIssue({
+                      ...editingIssue,
+                      assignee: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-md px-3 py-2"
+                >
+                  <option value="">選択してください</option>
+                  {project.members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* ボタン群 */}
@@ -466,28 +463,24 @@ export default function IssuesPage() {
                 />
               </div>
 
-              {/* 担当者 */}
-              {!project.isPrivate && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    担当者
-                  </label>
-                  <select
-                    value={newIssue.assignee}
-                    onChange={(e) =>
-                      setNewIssue({ ...newIssue, assignee: e.target.value })
-                    }
-                    className="w-full border rounded-md px-3 py-2"
-                  >
-                    <option value="">選択してください</option>
-                    {project.members.map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* 担当者（共有PJなので常に表示） */}
+              <div>
+                <label className="block text-sm font-medium mb-1">担当者</label>
+                <select
+                  value={newIssue.assignee}
+                  onChange={(e) =>
+                    setNewIssue({ ...newIssue, assignee: e.target.value })
+                  }
+                  className="w-full border rounded-md px-3 py-2"
+                >
+                  <option value="">選択してください</option>
+                  {project.members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {/* 関連Goal */}
               {project.goals.length > 0 && (
@@ -533,9 +526,7 @@ export default function IssuesPage() {
                     title: newIssue.title,
                     description: newIssue.description,
                     status: "未対応",
-                    assignee: project.isPrivate
-                      ? "自分"
-                      : newIssue.assignee || "未設定",
+                    assignee: newIssue.assignee || "未設定",
                     deadline: newIssue.deadline || "期日なし",
                     relatedGoal: newIssue.relatedGoal || "",
                   };
