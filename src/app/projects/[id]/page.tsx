@@ -38,6 +38,14 @@ interface Issue {
   relatedGoal?: string;
 }
 
+// 🔁 毎週のルーティン（単語帳・ピアノ練習など）
+interface Routine {
+  id: string;
+  title: string;
+  targetHoursPerWeek: number;
+  memo?: string;
+}
+
 interface Project {
   id: string;
   title: string;
@@ -47,6 +55,12 @@ interface Project {
   issues: Issue[];
   progress?: number;
   deadline?: string;
+
+  // このプロジェクトに週あたりどれだけ時間を割くか（目安）
+  allocatedHoursPerWeek?: number;
+
+  // 🔁 このプロジェクト内のルーティン
+  routines?: Routine[];
 }
 
 // ===============================
@@ -85,6 +99,22 @@ export default function ProjectDetail() {
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: "", deadline: "" });
 
+  // このPJに割り当てる時間の入力用 state（テキストボックス用）
+  const [allocationInput, setAllocationInput] = useState<string>("0");
+
+  // 🔁 Routine用の state
+  const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
+  const [routineForm, setRoutineForm] = useState<{
+    title: string;
+    targetHoursPerWeek: string;
+    memo: string;
+  }>({
+    title: "",
+    targetHoursPerWeek: "1",
+    memo: "",
+  });
+
   // ===============================
   // ✅ Firestoreから案件を取得（users/{uid}/projects/{id}）
   // ===============================
@@ -115,8 +145,11 @@ export default function ProjectDetail() {
             issues: data.issues ?? [],
             progress: data.progress ?? 0,
             deadline: data.deadline || "",
+            allocatedHoursPerWeek: data.allocatedHoursPerWeek ?? 0,
+            routines: data.routines ?? [],
           };
           setProject(normalized);
+          setAllocationInput(String(normalized.allocatedHoursPerWeek ?? 0));
         } else {
           setProject(null);
         }
@@ -190,6 +223,20 @@ export default function ProjectDetail() {
     }
 
     return total === 0 ? 0 : Math.round((done / total) * 100);
+  };
+
+  // 割り当て時間を保存するハンドラ
+  const handleSaveAllocation = () => {
+    if (!project) return;
+    const hours = Number(allocationInput);
+    const safeHours = isNaN(hours) || hours < 0 ? 0 : hours;
+
+    const updated: Project = {
+      ...project,
+      allocatedHoursPerWeek: safeHours,
+    };
+
+    saveProject(updated);
   };
 
   // -------------------------------------
@@ -275,6 +322,77 @@ export default function ProjectDetail() {
     saveProject({ ...project, goals: updatedGoals });
   };
 
+  // -------------------------------------
+  // 🔁 Routine追加/編集/削除まわり
+  // -------------------------------------
+  const openNewRoutineModal = () => {
+    setEditingRoutine(null);
+    setRoutineForm({
+      title: "",
+      targetHoursPerWeek: "1",
+      memo: "",
+    });
+    setIsRoutineModalOpen(true);
+  };
+
+  const openEditRoutineModal = (routine: Routine) => {
+    setEditingRoutine(routine);
+    setRoutineForm({
+      title: routine.title,
+      targetHoursPerWeek: String(routine.targetHoursPerWeek ?? 0),
+      memo: routine.memo ?? "",
+    });
+    setIsRoutineModalOpen(true);
+  };
+
+  const saveRoutine = () => {
+    if (!project) return;
+    if (!routineForm.title.trim()) {
+      alert("ルーティンのタイトルは必須です。");
+      return;
+    }
+
+    const num = Number(routineForm.targetHoursPerWeek);
+    const hours = isNaN(num) || num < 0 ? 0 : Math.round(num * 10) / 10; // 小数1桁くらいに丸める
+
+    const existing = project.routines ?? [];
+    let updatedRoutines: Routine[];
+
+    if (editingRoutine) {
+      updatedRoutines = existing.map((r) =>
+        r.id === editingRoutine.id
+          ? {
+              ...r,
+              title: routineForm.title.trim(),
+              targetHoursPerWeek: hours,
+              memo: routineForm.memo.trim() || undefined,
+            }
+          : r
+      );
+    } else {
+      const newRoutine: Routine = {
+        id: Date.now().toString(),
+        title: routineForm.title.trim(),
+        targetHoursPerWeek: hours,
+        memo: routineForm.memo.trim() || undefined,
+      };
+      updatedRoutines = [...existing, newRoutine];
+    }
+
+    saveProject({ ...project, routines: updatedRoutines });
+    setIsRoutineModalOpen(false);
+    setEditingRoutine(null);
+  };
+
+  const deleteRoutine = (routineId: string) => {
+    if (!project) return;
+    if (!confirm("このルーティンを削除しますか？")) return;
+
+    const existing = project.routines ?? [];
+    const updatedRoutines = existing.filter((r) => r.id !== routineId);
+    saveProject({ ...project, routines: updatedRoutines });
+  };
+
   // ===============================
   // レンダリング分岐
   // ===============================
@@ -327,9 +445,13 @@ export default function ProjectDetail() {
     );
   }
 
-  // -------------------------------------
-  // JSX出力（ここから下は project が必ず存在）
-  // -------------------------------------
+  // ここから下は project が必ず存在
+  const routines = project.routines ?? [];
+  const totalRoutineHours = routines.reduce(
+    (sum, r) => sum + (r.targetHoursPerWeek || 0),
+    0
+  );
+
   return (
     <main
       className="
@@ -341,7 +463,7 @@ export default function ProjectDetail() {
       "
     >
       {/* ヘッダー */}
-      <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-10 border-b border-gray-200 pb-4">
+      <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 border-b border-gray-200 pb-4">
         {/* 左側：タイトル・説明 */}
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -373,6 +495,112 @@ export default function ProjectDetail() {
           </button>
         </div>
       </header>
+
+      {/* このプロジェクトへの時間割り当て */}
+      <section className="mb-6 bg-white/70 rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">
+            このプロジェクトに割り当てる時間（週あたり）
+          </h2>
+          <p className="text-xs text-gray-500">
+            「人生全体のキャパ」のうち、ここにどれだけ時間を使うかの目安です。
+          </p>
+          {project.allocatedHoursPerWeek !== undefined && (
+            <p className="text-xs text-gray-500 mt-2">
+              ルーティン合計:{" "}
+              <span className="font-semibold">
+                {totalRoutineHours.toFixed(1)} 時間 / 週
+              </span>{" "}
+              （このプロジェクトの割り当て{" "}
+              {project.allocatedHoursPerWeek.toFixed(1)} 時間 / 週）
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            className="w-24 border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+            value={allocationInput}
+            onChange={(e) => setAllocationInput(e.target.value)}
+          />
+          <span className="text-sm text-gray-600">時間 / 週</span>
+          <button
+            onClick={handleSaveAllocation}
+            className="ml-2 px-3 py-1.5 bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white text-xs rounded-full hover:opacity-90 transition"
+          >
+            保存
+          </button>
+        </div>
+      </section>
+
+      {/* 🔁 ルーティン（毎週やること） */}
+      <section className="bg-white/70 rounded-xl border border-gray-200 shadow-sm p-6 mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              🔁 ルーティン（毎週やること）
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              例：英検なら「単語帳1時間」「長文1時間」、ピアノなら「基礎練30分」など。
+            </p>
+          </div>
+          <button
+            onClick={openNewRoutineModal}
+            className="bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-4 py-2 rounded-full shadow-sm hover:opacity-90 text-sm"
+          >
+            ＋ ルーティン追加
+          </button>
+        </div>
+
+        {routines.length === 0 ? (
+          <p className="text-gray-500 text-sm">
+            まだルーティンが登録されていません。
+            <br />
+            「週に何をどれくらいやるか」をここに落とし込むと、行動に繋がりやすくなります。
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {routines.map((r) => (
+              <li
+                key={r.id}
+                className="flex justify-between items-start bg-gray-50 border border-gray-200 rounded-lg px-4 py-3"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-800">
+                      {r.title}
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      （{r.targetHoursPerWeek.toFixed(1)} 時間 / 週）
+                    </span>
+                  </div>
+                  {r.memo && (
+                    <p className="text-xs text-gray-500 mt-1 whitespace-pre-line">
+                      {r.memo}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={() => openEditRoutineModal(r)}
+                    className="text-blue-500 hover:text-blue-700"
+                  >
+                    ✏️ 編集
+                  </button>
+                  <button
+                    onClick={() => deleteRoutine(r.id)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    🗑 削除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* 🎯 Goals / Tasks */}
       <section className="bg-white/60 rounded-xl border border-gray-200 shadow-sm p-6 mb-12">
@@ -847,6 +1075,95 @@ export default function ProjectDetail() {
                 className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ ルーティン追加/編集モーダル */}
+      {isRoutineModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold mb-4">
+              🔁 {editingRoutine ? "ルーティンを編集" : "ルーティンを追加"}
+            </h2>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  タイトル
+                </label>
+                <input
+                  type="text"
+                  value={routineForm.title}
+                  onChange={(e) =>
+                    setRoutineForm((prev) => ({
+                      ...prev,
+                      title: e.target.value,
+                    }))
+                  }
+                  className="w-full border rounded-md px-3 py-2"
+                  placeholder="例：単語帳、ピアノ練習"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  目安時間（週あたり）
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={routineForm.targetHoursPerWeek}
+                    onChange={(e) =>
+                      setRoutineForm((prev) => ({
+                        ...prev,
+                        targetHoursPerWeek: e.target.value,
+                      }))
+                    }
+                    className="w-24 border rounded-md px-3 py-2"
+                  />
+                  <span className="text-sm text-gray-600">時間 / 週</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  メモ（任意）
+                </label>
+                <textarea
+                  value={routineForm.memo}
+                  onChange={(e) =>
+                    setRoutineForm((prev) => ({
+                      ...prev,
+                      memo: e.target.value,
+                    }))
+                  }
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="例：朝の通勤時間にやる、休日の午前中にまとめて、など"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setIsRoutineModalOpen(false);
+                  setEditingRoutine(null);
+                }}
+                className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={saveRoutine}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+              >
+                {editingRoutine ? "保存" : "追加"}
               </button>
             </div>
           </div>

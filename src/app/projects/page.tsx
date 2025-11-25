@@ -11,6 +11,7 @@ import {
   doc,
   serverTimestamp,
   getDoc,
+  setDoc, // 🆕 追加
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/useAuth";
@@ -30,6 +31,9 @@ interface Project {
   isShared?: boolean; // 共有プロジェクトかどうか
   sharedProjectId?: string; // shareProjects 側の ID
   ownerUid?: string; // 共有PJのオーナー（作成者）
+
+  // 🆕 このプロジェクトに週あたりどれだけ時間を割くか（目安）
+  allocatedHoursPerWeek?: number;
 }
 
 export default function Projects() {
@@ -49,7 +53,14 @@ export default function Projects() {
     isShared: false,
     sharedProjectId: undefined,
     ownerUid: undefined,
+    allocatedHoursPerWeek: 0,
   });
+
+  // 🆕 週あたり自分が使える時間（Firestore に保存する値）
+  const [weeklyCapacity, setWeeklyCapacity] = useState<number>(20);
+  // 入力用（文字列） state
+  const [weeklyCapacityInput, setWeeklyCapacityInput] = useState<string>("20");
+  const [isCapacitySaving, setIsCapacitySaving] = useState(false);
 
   // 共有リンク用に origin を確保
   const [origin, setOrigin] = useState("");
@@ -60,9 +71,72 @@ export default function Projects() {
   }, []);
 
   // ===============================
-  // 🔽 ログインユーザーのプロジェクト一覧を取得
-  //   users/{uid}/projects のみをソースにする
+  // 🔽 週あたりのキャパシティを Firestore から読み込む
+  //   users/{uid}/settings/dashboardCapacity というドキュメントに保存する想定
   // ===============================
+  const loadWeeklyCapacity = async (user: User) => {
+    try {
+      const settingsRef = doc(
+        db,
+        "users",
+        user.uid,
+        "settings",
+        "dashboardCapacity"
+      );
+      const snap = await getDoc(settingsRef);
+
+      if (snap.exists()) {
+        const data = snap.data() as { weeklyCapacity?: number };
+        const cap =
+          typeof data.weeklyCapacity === "number" ? data.weeklyCapacity : 20;
+        setWeeklyCapacity(cap);
+        setWeeklyCapacityInput(String(cap));
+      } else {
+        // ドキュメントがない場合はデフォルト 20h
+        setWeeklyCapacity(20);
+        setWeeklyCapacityInput("20");
+      }
+    } catch (e) {
+      console.error("weeklyCapacity の読み込みに失敗:", e);
+      // 失敗した場合も一応 20 にしておく
+      setWeeklyCapacity(20);
+      setWeeklyCapacityInput("20");
+    }
+  };
+
+  // ===============================
+  // 🔽 weeklyCapacity を Firestore に保存
+  // ===============================
+  const saveWeeklyCapacity = async () => {
+    if (!user) {
+      alert("ログインが切れています。再度ログインしてください。");
+      return;
+    }
+
+    const num = Number(weeklyCapacityInput);
+    const safe = isNaN(num) || num <= 0 ? 1 : num; // 0 以下はとりあえず 1 に補正
+
+    try {
+      setIsCapacitySaving(true);
+      const settingsRef = doc(
+        db,
+        "users",
+        user.uid,
+        "settings",
+        "dashboardCapacity"
+      );
+      await setDoc(settingsRef, { weeklyCapacity: safe }, { merge: true });
+
+      setWeeklyCapacity(safe);
+      setWeeklyCapacityInput(String(safe));
+    } catch (e) {
+      console.error("weeklyCapacity の保存に失敗:", e);
+      alert("週に使える時間の保存に失敗しました。");
+    } finally {
+      setIsCapacitySaving(false);
+    }
+  };
+
   // ===============================
   // 🔽 ログインユーザーのプロジェクト一覧を取得
   //   users/{uid}/projects のみをソースにする
@@ -88,7 +162,8 @@ export default function Projects() {
         createdAt: data.createdAt,
         isShared: data.isShared ?? false,
         sharedProjectId: data.sharedProjectId,
-        ownerUid: data.ownerUid, // ← ここは一旦そのまま
+        ownerUid: data.ownerUid,
+        allocatedHoursPerWeek: data.allocatedHoursPerWeek ?? 0,
       };
     });
 
@@ -146,6 +221,7 @@ export default function Projects() {
   useEffect(() => {
     if (!user || user === null) return;
     loadProjects(user);
+    loadWeeklyCapacity(user); // 🆕 キャパも一緒にロード
   }, [user]);
 
   const openModal = (project?: Project) => {
@@ -156,6 +232,7 @@ export default function Projects() {
         // 編集モーダル上では isPrivate が「公開範囲」のラジオボタンに対応
         // 共有PJ編集中は公開範囲は変更不可（後で無効化）
         isPrivate: !project.isShared,
+        allocatedHoursPerWeek: project.allocatedHoursPerWeek ?? 0,
       });
     } else {
       setEditingProject(null);
@@ -169,7 +246,8 @@ export default function Projects() {
         deadline: "",
         isShared: false,
         sharedProjectId: undefined,
-        ownerUid: user?.uid, // 新規作成時は自分がオーナー候補
+        ownerUid: user?.uid,
+        allocatedHoursPerWeek: 0,
       });
     }
     setIsModalOpen(true);
@@ -215,6 +293,7 @@ export default function Projects() {
           // 共有PJは isPrivate: false 固定
           isPrivate: editingProject.isShared ? false : newProject.isPrivate,
           deadline: newProject.deadline,
+          allocatedHoursPerWeek: newProject.allocatedHoursPerWeek ?? 0,
         });
 
         // 共有PJだった場合は、shareProjects 側も更新する
@@ -228,6 +307,7 @@ export default function Projects() {
             title: newProject.title,
             description: newProject.description,
             deadline: newProject.deadline,
+            allocatedHoursPerWeek: newProject.allocatedHoursPerWeek ?? 0,
           });
         }
       } else {
@@ -246,6 +326,7 @@ export default function Projects() {
             progress: 0,
             deadline: newProject.deadline,
             createdAt: serverTimestamp(),
+            allocatedHoursPerWeek: newProject.allocatedHoursPerWeek ?? 0,
           });
         } else {
           // 👥 共有プロジェクト
@@ -263,6 +344,7 @@ export default function Projects() {
             progress: 0,
             deadline: newProject.deadline,
             createdAt: serverTimestamp(),
+            allocatedHoursPerWeek: newProject.allocatedHoursPerWeek ?? 0,
           });
 
           // 2) 自分の users/{uid}/projects にショートカットを作成
@@ -278,6 +360,7 @@ export default function Projects() {
             progress: 0,
             deadline: newProject.deadline,
             createdAt: serverTimestamp(),
+            allocatedHoursPerWeek: newProject.allocatedHoursPerWeek ?? 0,
           });
         }
       }
@@ -339,6 +422,14 @@ export default function Projects() {
     }
   };
 
+  // 🧮 リソース配分の集計
+  const totalAllocated = projects.reduce(
+    (sum, p) => sum + (p.allocatedHoursPerWeek || 0),
+    0
+  );
+  const utilization =
+    weeklyCapacity > 0 ? Math.min(totalAllocated / weeklyCapacity, 2) : 0;
+
   // 🔄 認証状態を確認中
   if (user === undefined) {
     return (
@@ -390,6 +481,71 @@ export default function Projects() {
             ＋ プロジェクトを追加
           </button>
         </div>
+      </section>
+
+      {/* 🆕 リソース配分（時間キャパ）のパネル */}
+      <section className="mb-10 max-w-3xl mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">
+          今週のリソース配分
+        </h2>
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-3">
+          <div>
+            <p className="text-xs text-gray-500 mb-1">
+              1週間で使える時間（目安）
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm"
+                value={weeklyCapacityInput}
+                onChange={(e) => setWeeklyCapacityInput(e.target.value)}
+              />
+              <span className="text-sm text-gray-600">時間 / 週</span>
+              <button
+                onClick={saveWeeklyCapacity}
+                disabled={isCapacitySaving}
+                className="px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isCapacitySaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          </div>
+
+          <div className="text-sm text-gray-600">
+            <p>
+              割り当て合計：{" "}
+              <span className="font-semibold">
+                {totalAllocated.toFixed(1)} 時間 / {weeklyCapacity} 時間
+              </span>
+            </p>
+            <p className="text-xs text-gray-500">
+              使用率：
+              {weeklyCapacity > 0
+                ? Math.round((totalAllocated / weeklyCapacity) * 100)
+                : 0}
+              %
+            </p>
+          </div>
+        </div>
+
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div
+            className={`h-2 rounded-full transition-all duration-300 ${
+              utilization <= 0.8
+                ? "bg-[#4CD4B0]"
+                : utilization <= 1
+                ? "bg-[#4C9AFF]"
+                : "bg-[#FB7185]"
+            }`}
+            style={{ width: `${Math.min(utilization * 100, 200)}%` }}
+          />
+        </div>
+
+        <p className="text-[11px] text-gray-500 mt-1">
+          80% くらいまでがちょうど良い負荷。100%超えは少し詰め込み気味です。
+        </p>
       </section>
 
       {/* 案件一覧 */}
@@ -499,6 +655,12 @@ export default function Projects() {
                   <p className="text-xs text-gray-500 mt-1">
                     進捗率: {p.progress || 0}%
                   </p>
+
+                  {typeof p.allocatedHoursPerWeek === "number" && (
+                    <p className="text-xs text-gray-500">
+                      割り当て: {p.allocatedHoursPerWeek} 時間 / 週
+                    </p>
+                  )}
 
                   {/* 👥 共有PJ用：共有リンクコピー */}
                   {isShared && shareUrl && (
@@ -639,6 +801,33 @@ export default function Projects() {
                   }
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring focus:ring-blue-100"
                 />
+              </div>
+
+              {/* 🆕 このプロジェクトに割り当てる時間 */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  このプロジェクトに割り当てる時間（週あたり）
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={newProject.allocatedHoursPerWeek ?? 0}
+                    onChange={(e) =>
+                      setNewProject({
+                        ...newProject,
+                        allocatedHoursPerWeek: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="w-24 border border-gray-300 rounded-md px-3 py-2 focus:ring focus:ring-blue-100 text-sm"
+                    placeholder="例：5"
+                  />
+                  <span className="text-sm text-gray-600">時間 / 週</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  「ブログに5時間 / アプリ開発に8時間」など、ざっくりでOKです。
+                </p>
               </div>
             </div>
 
