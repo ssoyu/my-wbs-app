@@ -314,6 +314,15 @@ export default function Projects() {
         // ==========================
         // 新規プロジェクト作成
         // ==========================
+
+        // 👥 共有は一旦封印（フロントからも選べない想定だが、念のためガード）
+        if (!newProject.isPrivate) {
+          alert(
+            "共有プロジェクト機能は現在準備中です。今は個人プロジェクトのみ作成できます。"
+          );
+          return;
+        }
+
         if (newProject.isPrivate) {
           // 🔒 個人プロジェクト → users/{uid}/projects に作成
           const projectsRef = collection(db, "users", user.uid, "projects");
@@ -427,8 +436,12 @@ export default function Projects() {
     (sum, p) => sum + (p.allocatedHoursPerWeek || 0),
     0
   );
-  const utilization =
-    weeklyCapacity > 0 ? Math.min(totalAllocated / weeklyCapacity, 2) : 0;
+
+  // 利用率（生の値。1.0 = 100%, 1.3 = 130%）
+  const utilization = weeklyCapacity > 0 ? totalAllocated / weeklyCapacity : 0;
+
+  // バーの幅は最大 100% で打ち止め
+  const barWidth = Math.min(utilization * 100, 100);
 
   // 🔄 認証状態を確認中
   if (user === undefined) {
@@ -530,16 +543,16 @@ export default function Projects() {
           </div>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
           <div
             className={`h-2 rounded-full transition-all duration-300 ${
               utilization <= 0.8
-                ? "bg-[#4CD4B0]"
+                ? "bg-[#4CD4B0]" // 余裕あり
                 : utilization <= 1
-                ? "bg-[#4C9AFF]"
-                : "bg-[#FB7185]"
+                ? "bg-[#4C9AFF]" // ちょうどくらい
+                : "bg-[#FB7185]" // キャパオーバー
             }`}
-            style={{ width: `${Math.min(utilization * 100, 200)}%` }}
+            style={{ width: `${barWidth}%` }} // 👈 ここを修正
           />
         </div>
 
@@ -724,7 +737,6 @@ export default function Projects() {
                   placeholder="例：新しいプロジェクト"
                 />
               </div>
-
               {/* 説明 */}
               <div>
                 <label className="block text-sm font-medium mb-1">説明</label>
@@ -741,7 +753,6 @@ export default function Projects() {
                   placeholder="プロジェクトの概要を入力"
                 />
               </div>
-
               {/* 共有／個人 */}
               <div>
                 <label className="block text-sm font-medium mb-1">
@@ -765,7 +776,7 @@ export default function Projects() {
                     />
                     🔒 個人
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex items-center gap-2 text-sm text-gray-400">
                     <input
                       type="radio"
                       name="isPrivate"
@@ -778,18 +789,22 @@ export default function Projects() {
                           ownerUid: user.uid,
                         })
                       }
-                      disabled={isSharedEditing}
+                      disabled={true} // ← 常に非活性
                     />
-                    👥 共有
+                    👥 共有（準備中）
                   </label>
                 </div>
-                {isSharedEditing && (
+
+                {isSharedEditing ? (
                   <p className="text-xs text-gray-500 mt-1">
-                    共有プロジェクトの公開範囲は変更できません。
+                    既存の共有プロジェクトは、公開範囲を変更できません。
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">
+                    共有プロジェクト機能は現在準備中です。今後のアップデートで解放予定です。
                   </p>
                 )}
               </div>
-
               {/* 期限 */}
               <div>
                 <label className="block text-sm font-medium mb-1">期限</label>
@@ -802,7 +817,6 @@ export default function Projects() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring focus:ring-blue-100"
                 />
               </div>
-
               {/* 🆕 このプロジェクトに割り当てる時間 */}
               <div>
                 <label className="block text-sm font-medium mb-1">
