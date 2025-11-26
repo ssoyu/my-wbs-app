@@ -481,7 +481,7 @@ export default function ProjectDetail() {
           {/* 📋 課題管理表 */}
           <button
             onClick={() => router.push(`/projects/${project.id}/issues`)}
-            className="bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-4 py-2 rounded-full shadow-sm hover:opacity-90 text-sm transition"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm transition"
           >
             📋 課題管理表
           </button>
@@ -528,7 +528,7 @@ export default function ProjectDetail() {
           <span className="text-sm text-gray-600">時間 / 週</span>
           <button
             onClick={handleSaveAllocation}
-            className="ml-2 px-3 py-1.5 bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white text-xs rounded-full hover:opacity-90 transition"
+            className="ml-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition"
           >
             保存
           </button>
@@ -537,18 +537,18 @@ export default function ProjectDetail() {
 
       {/* 🔁 ルーティン（毎週やること） */}
       <section className="bg-white/70 rounded-xl border border-gray-200 shadow-sm p-6 mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div className="flex-1">
             <h2 className="text-lg font-semibold text-gray-800">
               🔁 ルーティン（毎週やること）
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              例：英検なら「単語帳1時間」「長文1時間」、ピアノなら「基礎練30分」など。
+              例：ブログなら週1執筆、ギターなら「基礎練30分」など。
             </p>
           </div>
           <button
             onClick={openNewRoutineModal}
-            className="bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-4 py-2 rounded-full shadow-sm hover:opacity-90 text-sm"
+            className="w-full sm:w-auto bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-3 py-2 rounded-full shadow-sm hover:opacity-90 text-sm whitespace-nowrap"
           >
             ＋ ルーティン追加
           </button>
@@ -565,33 +565,36 @@ export default function ProjectDetail() {
             {routines.map((r) => (
               <li
                 key={r.id}
-                className="flex justify-between items-start bg-gray-50 border border-gray-200 rounded-lg px-4 py-3"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-3"
               >
-                <div>
+                {/* 左側：ルーティン名＋時間＋メモ */}
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-gray-800">
+                    <span className="font-semibold text-gray-800 truncate">
                       {r.title}
                     </span>
-                    <span className="text-xs text-gray-600">
+                    <span className="text-xs text-gray-600 flex-shrink-0 whitespace-nowrap">
                       （{r.targetHoursPerWeek.toFixed(1)} 時間 / 週）
                     </span>
                   </div>
                   {r.memo && (
-                    <p className="text-xs text-gray-500 mt-1 whitespace-pre-line">
+                    <p className="text-xs text-gray-500 mt-1 whitespace-pre-line break-words">
                       {r.memo}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2 text-xs">
+
+                {/* 右側：操作ボタン（スマホでは下に来る） */}
+                <div className="flex gap-2 text-xs self-end sm:self-auto">
                   <button
                     onClick={() => openEditRoutineModal(r)}
-                    className="text-blue-500 hover:text-blue-700"
+                    className="text-blue-500 hover:text-blue-700 whitespace-nowrap"
                   >
                     ✏️ 編集
                   </button>
                   <button
                     onClick={() => deleteRoutine(r.id)}
-                    className="text-red-500 hover:text-red-700"
+                    className="text-red-500 hover:text-red-700 whitespace-nowrap"
                   >
                     🗑 削除
                   </button>
@@ -604,15 +607,13 @@ export default function ProjectDetail() {
 
       {/* 🎯 Goals / Tasks */}
       <section className="bg-white/60 rounded-xl border border-gray-200 shadow-sm p-6 mb-12">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-800">
-            🎯 中項目（Goals）
-          </h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <h2 className="text-xl font-semibold text-gray-800">🎯 中項目</h2>
           <button
             onClick={openGoalModal}
-            className="bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-4 py-2 rounded-full shadow-sm hover:opacity-90"
+            className="w-full sm:w-auto bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF] text-white px-3 py-2 rounded-full shadow-sm hover:opacity-90 text-sm whitespace-nowrap"
           >
-            ＋ Goal追加
+            ＋ 中項目追加
           </button>
         </div>
 
@@ -656,18 +657,19 @@ export default function ProjectDetail() {
               return (
                 <li
                   key={g.id}
-                  className="bg-gray-50 rounded-lg border border-gray-200"
+                  className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden"
                 >
                   {/* Goalヘッダー */}
-                  <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800">
+                  <div className="flex justify-between items-start gap-3 px-4 py-3 border-b border-gray-200">
+                    {/* 左側：タイトル＋期日＋プログレス */}
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-semibold text-gray-800 break-words">
                         {g.title}
                       </h3>
                       <p className="text-sm text-gray-500">
                         🗓 {g.deadline || "期日なし"}
                       </p>
-                      <div className="mt-2 w-48 bg-gray-200 rounded-full h-2">
+                      <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                         <div
                           className="h-2 rounded-full bg-gradient-to-r from-[#4CD4B0] to-[#4C9AFF]"
                           style={{ width: `${goalProgress}%` }}
@@ -677,7 +679,9 @@ export default function ProjectDetail() {
                         {goalProgress}%（{doneTasks}/{totalTasks}）
                       </p>
                     </div>
-                    <div className="flex gap-2 text-sm">
+
+                    {/* 右側：操作ボタン */}
+                    <div className="flex gap-2 text-sm flex-shrink-0">
                       <button
                         onClick={() => addTask(g.id)}
                         className="text-blue-500 hover:text-blue-700"
@@ -710,7 +714,8 @@ export default function ProjectDetail() {
                   </div>
 
                   {/* タスク一覧 */}
-                  <div className="p-4 pl-6 space-y-2 border-l-4 border-[#4C9AFF]/40 bg-white">
+                  {/* タスク一覧 */}
+                  <div className="w-full p-4 pl-6 space-y-2 border-l-4 border-[#4C9AFF]/40 bg-white">
                     {sortedTasks.length === 0 ? (
                       <p className="text-gray-500 text-sm">
                         まだタスクが登録されていません。
@@ -727,15 +732,16 @@ export default function ProjectDetail() {
                           return (
                             <li
                               key={t.id}
-                              className={`flex justify-between items-center bg-gray-50 px-3 py-2 rounded-md border ${
+                              className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-gray-50 px-3 py-2 rounded-md border ${
                                 isOverdue
                                   ? "border-red-300 bg-red-50"
                                   : "border-gray-200"
                               }`}
                             >
-                              <div>
-                                <span
-                                  className={`${
+                              {/* 左側：タスク情報 */}
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className={`text-sm break-words ${
                                     t.done
                                       ? "line-through text-gray-400"
                                       : isOverdue
@@ -744,15 +750,17 @@ export default function ProjectDetail() {
                                   }`}
                                 >
                                   {t.title}
-                                </span>
-                                <span className="ml-2 text-xs text-gray-500">
-                                  🗓 {t.deadline}
-                                </span>
-                                <span className="ml-2 text-xs text-gray-600">
-                                  👤 {t.assignee}
-                                </span>
+                                </p>
+                                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-gray-500">
+                                  <span>🗓 {t.deadline}</span>
+                                  <span className="text-gray-600">
+                                    👤 {t.assignee}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="flex gap-2 text-xs">
+
+                              {/* 右側：操作ボタン（スマホでは下に来る） */}
+                              <div className="flex gap-2 text-xs self-end sm:self-auto">
                                 <button
                                   onClick={() => {
                                     if (t.done) {
